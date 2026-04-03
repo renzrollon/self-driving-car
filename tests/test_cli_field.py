@@ -17,7 +17,7 @@ def make_session(inputs: list[str]) -> tuple[CliSession, list[str]]:
     """Build a CliSession with canned input and a captured output list."""
     it = iter(inputs)
     printed: list[str] = []
-    session = CliSession(input_fn=lambda: next(it), print_fn=lambda *a, **kw: printed.append(" ".join(str(x) for x in a)))
+    session = CliSession(input_fn=lambda: next(it), print_fn=lambda s: printed.append(s))
     return session, printed
 
 

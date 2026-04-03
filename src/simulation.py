@@ -4,19 +4,56 @@ Simulation runner module — simulation-runner.md R1–R7
 Top-level orchestrator: parses structured text input (field dimensions +
 one or more car definitions with command queues), drives simultaneous
 step-by-step execution until all active cars are exhausted or all cars
-are stopped, and emits final positions or collision records.
+are stopped, and returns a typed SimulationResult.
 
 Design references: design.md D1, D2, D4, D5
+T3.1/T3.2: Simulation.run() now returns SimulationResult instead of
+list[str], eliminating the string-parsing roundtrip in the CLI layer.
 """
 
 from __future__ import annotations
 
 import sys
 from collections import deque
+from dataclasses import dataclass, field as dc_field
 
 from src.car import Car
-from src.collision import CollisionDetector
+from src.collision import CollisionEvent, detect_collisions
 from src.field import Field
+
+
+# ------------------------------------------------------------------
+# T3.1 — Typed result containers
+# ------------------------------------------------------------------
+
+@dataclass
+class SimulationResult:
+    """Typed output of a completed simulation run.
+
+    Attributes:
+        collisions: All collision events in step then (x, y) order.
+        survivors:  Cars that never collided, in declaration order.
+    """
+
+    collisions: list[CollisionEvent] = dc_field(default_factory=list)
+    survivors: list[Car] = dc_field(default_factory=list)
+
+    def to_lines(self) -> list[str]:
+        """Return engine-format output lines (same strings the old
+        ``Simulation.run() -> list[str]`` produced).
+
+        Used by the ``__main__`` batch entry point so callers that
+        depended on the previous string API can migrate incrementally.
+        Collisions are emitted first (in event order), then survivors
+        in declaration order.
+        """
+        lines: list[str] = []
+        for ev in self.collisions:
+            names = " ".join(ev.names)
+            lines.append(f"{names} collides at ({ev.x},{ev.y}) at step {ev.step}")
+        for car in self.survivors:
+            lines.append(f"{car.name} ({car.x},{car.y},{car.direction})")
+        return lines
 
 
 class Simulation:
@@ -148,31 +185,30 @@ class Simulation:
     # R4 — Execute simulation step-by-step
     # ------------------------------------------------------------------
 
-    def run(self) -> list[str]:
-        """Run the simulation to completion and return formatted output lines.
+    def run(self) -> SimulationResult:
+        """Run the simulation to completion and return a typed SimulationResult.
 
         Execution model (design.md D2):
         1. Check for step-0 collisions (initial placement — D4).
         2. While any non-stopped car still has commands:
            a. Each non-stopped car with remaining commands pops and applies
               its next command simultaneously.
-           b. CollisionDetector.check() runs after every step.
-        3. Collect all collision records and final positions; format per R6.
+           b. detect_collisions() runs after every step.
+        3. Collect CollisionEvents and surviving Cars; return SimulationResult.
 
         Returns:
-            A list of output lines: collision records first (in step order,
-            then by position), followed by surviving cars in declaration order.
+            SimulationResult with collisions in step/position order and
+            survivors in declaration order.
         """
-        collision_records: list[str] = []
-        # Track which cars were ever involved in a collision (by name)
+        collisions: list[CollisionEvent] = []
         collided_names: set[str] = set()
 
         # D4 — step-0 collision check (initial placement)
-        step0_records = CollisionDetector.check(self.cars, step=0)
-        if step0_records:
-            collision_records.extend(step0_records)
-            for record in step0_records:
-                collided_names.update(self._names_from_record(record))
+        step0_events = detect_collisions(self.cars, step=0)
+        if step0_events:
+            collisions.extend(step0_events)
+            for ev in step0_events:
+                collided_names.update(ev.names)
 
         step = 0
 
@@ -193,52 +229,19 @@ class Simulation:
                     car.apply_command(cmd, self.field)
 
             # Collision check after this step
-            step_records = CollisionDetector.check(self.cars, step=step)
-            if step_records:
-                collision_records.extend(step_records)
-                for record in step_records:
-                    collided_names.update(self._names_from_record(record))
+            step_events = detect_collisions(self.cars, step=step)
+            if step_events:
+                collisions.extend(step_events)
+                for ev in step_events:
+                    collided_names.update(ev.names)
 
-        # ------------------------------------------------------------------
-        # R6 — Format output
-        # Collision records first (already in step/position order),
-        # then surviving cars in declaration order.
-        # ------------------------------------------------------------------
-        output: list[str] = list(collision_records)
-
-        for car in self.cars:
-            if car.name not in collided_names:
-                output.append(f"{car.name} ({car.x},{car.y},{car.direction})")
-
-        return output
+        survivors = [car for car in self.cars if car.name not in collided_names]
+        return SimulationResult(collisions=collisions, survivors=survivors)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _names_from_record(record: str) -> list[str]:
-        """Extract car names from a collision record string.
-
-        Collision records have the format::
-
-            <A> [<B> ...] collides at (<x>,<y>) at step <N>
-
-        The names are all tokens before the literal word 'collides'.
-
-        Args:
-            record: A formatted collision record string.
-
-        Returns:
-            List of car name strings.
-        """
-        tokens = record.split()
-        names = []
-        for token in tokens:
-            if token == "collides":
-                break
-            names.append(token)
-        return names
 
     def __repr__(self) -> str:
         return (
@@ -251,7 +254,7 @@ class Simulation:
 # D5 — CLI entry point: stdin or file argument
 # ------------------------------------------------------------------
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     if len(sys.argv) > 1:
         with open(sys.argv[1], "r", encoding="utf-8") as fh:
             text = fh.read()
@@ -259,6 +262,6 @@ if __name__ == "__main__":
         text = sys.stdin.read()
 
     sim = Simulation.from_string(text)
-    for line in sim.run():
+    for line in sim.run().to_lines():
         print(line)
 

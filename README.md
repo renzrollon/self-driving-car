@@ -8,13 +8,12 @@ are detected after every step and colliding cars are stopped immediately.
 
 ## Requirements
 
-- Python 3.9+
-- pytest (for running tests)
+- Python 3.12+
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install pytest
+pip install -e ".[dev]"
 ```
 
 ---
@@ -147,14 +146,14 @@ printf "10 10\nA 0 2 E FFFFF\nB 4 2 W FFFFF\nC 0 9 S F" | python -m src.simulati
 src/
   field.py        — Field class: dimensions + bounds checking
   car.py          — Car class: position, direction, command execution
-  collision.py    — CollisionDetector: detects and records collisions
+  collision.py    — detect_collisions(): collision detection; CollisionEvent dataclass
   simulation.py   — Simulation class + batch CLI entry point
   cli.py          — CliSession: interactive CLI entry point
 
 tests/
   test_field.py           — Field unit tests
   test_car.py             — Car unit tests
-  test_collision.py       — CollisionDetector unit tests
+  test_collision.py       — detect_collisions() / CollisionEvent unit tests
   test_cli_field.py       — CLI field-setup prompt unit tests
   test_cli_car.py         — CLI car-registration flow unit tests
   test_cli_run.py         — CLI run-and-result unit tests
@@ -166,19 +165,19 @@ tests/
 ## Running tests
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest
 ```
 
-All 139 tests should pass:
+All 134 tests should pass:
 
 ```
 ...........................................................................
-139 passed in 0.9s
+134 passed in 0.5s
 ```
 
-For verbose output with short tracebacks on failure:
+For verbose output with short tracebacks on failure (the default via `pyproject.toml`):
 
 ```bash
-python -m pytest tests/ -v --tb=short
+python -m pytest -v --tb=short
 ```
 

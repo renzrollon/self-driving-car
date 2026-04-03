@@ -15,16 +15,32 @@ class Field:
     """
 
     def __init__(self, width: int, height: int) -> None:
+        # T2.1 — validate here so Field(0, -1) is impossible regardless of
+        #         how the instance is constructed (not just via from_string).
+        # R2.S1 — zero or negative width
+        if width <= 0:
+            raise ValueError(
+                f"Error: field width must be a positive integer, got {width}"
+            )
+        # R2.S3 — zero or negative height
+        if height <= 0:
+            raise ValueError(
+                f"Error: field height must be a positive integer, got {height}"
+            )
         self.width = width
         self.height = height
 
     # ------------------------------------------------------------------
-    # R1 / R2 — Parse and validate from a "W H" string
+    # R1 / R2 — Parse from a "W H" string; validation delegated to __init__
     # ------------------------------------------------------------------
 
     @classmethod
     def from_string(cls, s: str) -> "Field":
         """Parse a field from a space-separated 'width height' string.
+
+        Parsing errors (wrong token count, non-integer values) raise
+        ValueError here.  Dimension validation (zero / negative) is
+        delegated to ``__init__``.
 
         Args:
             s: A string of the form '<width> <height>', e.g. '10 10'.
@@ -52,18 +68,7 @@ class Field:
                 f"Error: field dimensions must be integers, got '{s.strip()}'"
             ) from exc
 
-        # R2.S1 — zero or negative width
-        if width <= 0:
-            raise ValueError(
-                f"Error: field width must be a positive integer, got {width}"
-            )
-
-        # R2.S3 — zero or negative height
-        if height <= 0:
-            raise ValueError(
-                f"Error: field height must be a positive integer, got {height}"
-            )
-
+        # __init__ handles width/height range validation (T2.1)
         return cls(width, height)
 
     # ------------------------------------------------------------------
@@ -73,7 +78,7 @@ class Field:
     def is_within_bounds(self, x: int, y: int) -> bool:
         """Return True if (x, y) is inside the field, False otherwise.
 
-        Valid range: 0 <= x <= width-1  AND  0 <= y <= height-1.
+        Valid range: 0 <= x < width  AND  0 <= y < height.
 
         Args:
             x: Column coordinate.
@@ -82,7 +87,8 @@ class Field:
         Returns:
             True if the position is within bounds, False otherwise.
         """
-        return 0 <= x <= self.width - 1 and 0 <= y <= self.height - 1
+        # T2.4 — idiomatic half-open range check (equivalent, but cleaner)
+        return 0 <= x < self.width and 0 <= y < self.height
 
     # ------------------------------------------------------------------
     # Helpers
@@ -95,3 +101,9 @@ class Field:
         if not isinstance(other, Field):
             return NotImplemented
         return self.width == other.width and self.height == other.height
+
+    # T2.2 — explicit declaration; __eq__ without __hash__ leaves objects
+    #         unhashable by default in Python 3, but stating it clearly
+    #         documents the intent and silences static-analysis warnings.
+    __hash__ = None  # type: ignore[assignment]
+

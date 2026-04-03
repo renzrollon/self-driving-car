@@ -32,7 +32,7 @@ def run_session(inputs: list[str]) -> list[str]:
     printed: list[str] = []
     session = CliSession(
         input_fn=lambda: next(it),
-        print_fn=lambda *a, **kw: printed.append(" ".join(str(x) for x in a)),
+        print_fn=lambda s: printed.append(s),
     )
     with pytest.raises(SystemExit) as exc_info:
         session.run()

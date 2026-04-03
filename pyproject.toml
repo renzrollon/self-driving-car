@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+
+[project]
+name = "self-driving-car"
+version = "0.1.0"
+description = "Auto Driving Car Simulation"
+readme = "README.md"
+requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# ---------------------------------------------------------------------------
+# Dev dependencies (replaces bare `pip install pytest pylint` in CI)
+# ---------------------------------------------------------------------------
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.0",
+    "pylint>=3.0",
+]
+
+# ---------------------------------------------------------------------------
+# Pytest — testpaths + pythonpath removes the need for PYTHONPATH=. overrides
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts   = "-v --tb=short --cov=src --cov-report=term-missing"
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit   = ["src/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under   = 80
+
+# ---------------------------------------------------------------------------
+# Pylint — migrated from .pylintrc so one config file owns everything
+# ---------------------------------------------------------------------------
+
+[tool.pylint.messages_control]
+# R0903: too-few-public-methods — intentional for single-responsibility classes
+#        such as CliSession that expose only a public run() method.
+# W0621: redefined-outer-name — triggered by __main__ block variable names
+#        that share names with method parameters in the same module; not a real bug.
+disable = ["R0903", "W0621"]
+
+[tool.pylint.format]
+max-line-length = 100

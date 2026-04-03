@@ -19,7 +19,7 @@ from typing import Callable
 
 from src.car import Car
 from src.field import Field
-from src.simulation import Simulation
+from src.simulation import Simulation, SimulationResult
 
 
 class CliSession:
@@ -37,7 +37,7 @@ class CliSession:
     def __init__(
         self,
         input_fn: Callable[[], str] = input,
-        print_fn: Callable[..., None] = print,
+        print_fn: Callable[[str], None] = print,
     ) -> None:
         self._input = input_fn
         self._print = print_fn
@@ -65,7 +65,10 @@ class CliSession:
             self._run_simulation()   # T4.1
             if self._post_run_menu():
                 continue  # [1] Start over
-            break        # [2] Exit
+            break        # [2] Exit — _post_run_menu returned False
+        # R2 — goodbye and terminate (cli-exit-refactor.md R2)
+        self._print("Thank you for using Auto Driving Car Simulation!")
+        sys.exit(0)
 
     # ------------------------------------------------------------------
     # T2.1: Field setup prompt — field-setup-prompt.md R1–R4
@@ -302,21 +305,19 @@ class CliSession:
         # R2 — build Simulation from session state and run
         queues = {name: deque(cmds) for name, cmds in self._commands.items()}
         sim = Simulation(self._field, self._cars, queues)  # type: ignore[arg-type]
-        results = sim.run()
+        result = sim.run()
 
-        # R3 — header + one formatted line per engine result token
-        # Collision tokens expand to one line per colliding car (R3.S2, R3.S4)
+        # R3 — header + formatted lines via typed formatter (T3.4 / T3.5)
         self._print("After simulation, the result is:")
-        for token in results:
-            for line in _expand_result_token(token):
-                self._print(line)
+        for line in format_result(result):
+            self._print(line)
 
     # ------------------------------------------------------------------
     # T4.2: Post-run menu — run-and-result.md R4–R7
     # ------------------------------------------------------------------
 
     def _post_run_menu(self) -> bool:
-        """Display the post-run menu; return True to start over, or exit.
+        """Display the post-run menu; return True to start over, False to exit.
 
         Implements:
             run-and-result.md R4 (menu), R5 (start over), R6 (exit),
@@ -324,9 +325,10 @@ class CliSession:
 
         Returns:
             ``True`` if the user chose ``[1] Start over``; the outer
-            ``run()`` loop then continues.  Option ``[2]`` calls
-            ``sys.exit(0)`` directly, so this method never returns
-            ``False``.
+            ``run()`` loop then continues.
+            ``False`` if the user chose ``[2] Exit``; ``run()`` is
+            responsible for printing the goodbye message and calling
+            ``sys.exit(0)`` (cli-exit-refactor.md R1, R2).
         """
         while True:
             # R4 — post-run menu
@@ -340,9 +342,8 @@ class CliSession:
                 # R5 — signal start-over to outer run() loop
                 return True
             if choice == "2":
-                # R6 — goodbye and terminate
-                self._print("Thank you for using Auto Driving Car Simulation!")
-                sys.exit(0)
+                # R6 — signal exit to outer run() loop
+                return False
             else:
                 # R7 — invalid option
                 self._print("Invalid option. Please enter 1 or 2.")
@@ -376,42 +377,47 @@ def _field_error_reason(exc: ValueError) -> str:
     return "dimensions must be two positive integers"
 
 
-def _expand_result_token(token: str) -> list[str]:
-    """Translate a ``Simulation.run()`` result token into one or more CLI display lines.
+def format_result(result: SimulationResult) -> list[str]:
+    """Translate a ``SimulationResult`` into CLI display lines.
 
-    Engine formats → CLI formats (design.md D5, run-and-result.md R3):
+    Engine formats → CLI formats (engine-result-types.md R3,
+    design.md D5, run-and-result.md R3):
 
-    - Survivor  ``"A (4,3,S)"``
-        → ``["- A, (4,3) S"]``
+    - Survivor  ``Car("A", 4, 3, "S")``
+        → ``"- A, (4,3) S"``
 
-    - Collision ``"A B collides at (2,2) at step 1"``
-        → ``["- A, collides with B at (2,2) at step 1",
-              "- B, collides with A at (2,2) at step 1"]``
-      One line per colliding car; the ``{others}`` portion lists the remaining
-      names in alphabetical order (same order as the engine token).
+    - CollisionEvent ``names=["A","B"], x=2, y=2, step=1``
+        → ``"- A, collides with B at (2,2) at step 1"``
+           ``"- B, collides with A at (2,2) at step 1"``
+      One line per colliding car; the ``{others}`` portion lists the
+      remaining names in the same (alphabetical) order as the event.
+
+    Collision lines are emitted first (preserving event order), then
+    survivor lines in declaration order — matching the engine's output
+    contract (simulation-runner.md R6).
 
     Args:
-        token: One raw result string from ``Simulation.run()``.
+        result: The typed SimulationResult from ``Simulation.run()``.
 
     Returns:
-        A list of formatted CLI display lines (one element for survivors;
-        N elements for an N-car collision).
+        A flat list of formatted CLI display lines.
     """
-    if "collides at" in token:
-        # "A B collides at (5,4) at step 7"
-        idx = token.index(" collides at ")
-        names = token[:idx].split()          # e.g. ["A", "B"]
-        coords_step = token[idx + len(" collides at "):]  # "(5,4) at step 7"
-        return [
-            f"- {name}, collides with {' '.join(n for n in names if n != name)}"
-            f" at {coords_step}"
-            for name in names
-        ]
-    # Survivor: "A (4,3,S)" → "- A, (4,3) S"
-    name, pos_dir = token.split(" ", 1)    # ["A", "(4,3,S)"]
-    inner = pos_dir.strip("()")             # "4,3,S"
-    x, y, direction = inner.split(",")
-    return [f"- {name}, ({x},{y}) {direction}"]
+    lines: list[str] = []
+
+    # Collision lines — one line per car per event
+    for ev in result.collisions:
+        for name in ev.names:
+            others = " ".join(n for n in ev.names if n != name)
+            lines.append(
+                f"- {name}, collides with {others}"
+                f" at ({ev.x},{ev.y}) at step {ev.step}"
+            )
+
+    # Survivor lines — in declaration order
+    for car in result.survivors:
+        lines.append(f"- {car.name}, ({car.x},{car.y}) {car.direction}")
+
+    return lines
 
 
 # ------------------------------------------------------------------

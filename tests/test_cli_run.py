@@ -8,9 +8,11 @@ Covers: R1.S1, R2.S1, R3.S1–R3.S3, R4.S1, R5.S1–R5.S2, R6.S1, R7.S1
 import sys
 import pytest
 
-from src.cli import CliSession, _expand_result_token
-from src.field import Field
 from src.car import Car
+from src.cli import CliSession, format_result
+from src.collision import CollisionEvent
+from src.field import Field
+from src.simulation import SimulationResult
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +29,7 @@ def make_session(
     printed: list[str] = []
     session = CliSession(
         input_fn=lambda: next(it),
-        print_fn=lambda *a, **kw: printed.append(" ".join(str(x) for x in a)),
+        print_fn=lambda s: printed.append(s),
     )
     session._field = field or Field(10, 10)
     if cars:
@@ -38,30 +40,51 @@ def make_session(
 
 
 # ---------------------------------------------------------------------------
-# _expand_result_token — unit tests for the formatting helper (D5, R3)
+# format_result — unit tests for the typed CLI formatting helper (T3.4, R3)
+# Replaces the old TestExpandResultToken which tested the now-removed
+# _expand_result_token string-parsing function.
 # ---------------------------------------------------------------------------
 
-class TestExpandResultToken:
+class TestFormatResult:
     def test_survivor_single_car(self):
-        assert _expand_result_token("A (4,3,S)") == ["- A, (4,3) S"]
+        result = SimulationResult(survivors=[Car("A", 4, 3, "S")], collisions=[])
+        assert format_result(result) == ["- A, (4,3) S"]
 
     def test_survivor_different_values(self):
-        assert _expand_result_token("C (0,7,S)") == ["- C, (0,7) S"]
+        result = SimulationResult(survivors=[Car("C", 0, 7, "S")], collisions=[])
+        assert format_result(result) == ["- C, (0,7) S"]
 
     def test_collision_two_cars_produces_two_lines(self):
-        lines = _expand_result_token("A B collides at (2,2) at step 1")
-        assert lines == [
+        result = SimulationResult(
+            survivors=[],
+            collisions=[CollisionEvent(names=["A", "B"], x=2, y=2, step=1)],
+        )
+        assert format_result(result) == [
             "- A, collides with B at (2,2) at step 1",
             "- B, collides with A at (2,2) at step 1",
         ]
 
     def test_collision_three_cars_produces_three_lines(self):
-        lines = _expand_result_token("A B C collides at (5,5) at step 3")
-        assert lines == [
+        result = SimulationResult(
+            survivors=[],
+            collisions=[CollisionEvent(names=["A", "B", "C"], x=5, y=5, step=3)],
+        )
+        assert format_result(result) == [
             "- A, collides with B C at (5,5) at step 3",
             "- B, collides with A C at (5,5) at step 3",
             "- C, collides with A B at (5,5) at step 3",
         ]
+
+    def test_collision_lines_before_survivor_lines(self):
+        """Collision lines always precede survivor lines in the output."""
+        result = SimulationResult(
+            survivors=[Car("C", 0, 8, "S")],
+            collisions=[CollisionEvent(names=["A", "B"], x=2, y=2, step=2)],
+        )
+        lines = format_result(result)
+        collision_idxs = [i for i, l in enumerate(lines) if "collides with" in l]
+        survivor_idxs  = [i for i, l in enumerate(lines) if "collides" not in l]
+        assert max(collision_idxs) < min(survivor_idxs)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +234,7 @@ class TestStartOver:
         printed: list[str] = []
         session = CliSession(
             input_fn=lambda: next(it),
-            print_fn=lambda *a, **kw: printed.append(" ".join(str(x) for x in a)),
+            print_fn=lambda s: printed.append(s),
         )
         with pytest.raises(SystemExit) as exc_info:
             session.run()
@@ -226,11 +249,31 @@ class TestStartOver:
 # ---------------------------------------------------------------------------
 
 class TestExit:
-    def test_r6_s1_exit_prints_goodbye_and_raises_systemexit(self):
-        """R6.S1 — Selecting '2' prints goodbye and exits with code 0."""
+    def test_r6_s1_returns_false_no_sys_exit(self):
+        """R6/T4.1 — Selecting '2' returns False; _post_run_menu does NOT call sys.exit."""
         session, printed = make_session(["2"])
+        result = session._post_run_menu()
+        assert result is False
+        # Goodbye message is NOT printed here — it belongs to run() now
+        assert "Thank you for using Auto Driving Car Simulation!" not in printed
+
+    def test_r6_s2_run_prints_goodbye_and_exits(self):
+        """R2/T4.2 — run() prints goodbye then calls sys.exit(0) when user selects '[2] Exit'."""
+        inputs = [
+            "10 10",          # field
+            "1",              # add car
+            "A", "1 2 N", "F",
+            "2",              # run simulation
+            "2",              # exit
+        ]
+        it = iter(inputs)
+        printed: list[str] = []
+        session = CliSession(
+            input_fn=lambda: next(it),
+            print_fn=lambda s: printed.append(s),
+        )
         with pytest.raises(SystemExit) as exc_info:
-            session._post_run_menu()
+            session.run()
         assert exc_info.value.code == 0
         assert "Thank you for using Auto Driving Car Simulation!" in printed
 
@@ -250,9 +293,9 @@ class TestInvalidPostRunOption:
         assert printed.count("Please choose from the following options:") >= 2
 
     def test_r7_non_numeric_input(self):
-        """Non-numeric input triggers error and re-prompt."""
+        """Non-numeric input triggers error and re-prompt; exit choice returns False."""
         session, printed = make_session(["abc", "2"])
-        with pytest.raises(SystemExit):
-            session._post_run_menu()
+        result = session._post_run_menu()
+        assert result is False
         assert "Invalid option. Please enter 1 or 2." in printed
 
