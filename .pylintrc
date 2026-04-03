@@ -1,0 +1,12 @@
+[MESSAGES CONTROL]
+# R0903: too-few-public-methods — intentional for stateless utility classes
+#         (CollisionDetector, CliSession) that follow the single-responsibility
+#         principle.
+# W0621: redefined-outer-name — triggered by __main__ block variable names
+#         (text, line) that happen to share names with method parameters in the
+#         same module; not an actual bug.
+disable=R0903,W0621
+
+[FORMAT]
+max-line-length=100
+

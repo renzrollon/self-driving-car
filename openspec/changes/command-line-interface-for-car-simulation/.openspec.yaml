@@ -1,0 +1,10 @@
+schema: openspec-change
+status: implemented
+created: "2026-04-03"
+updated: "2026-04-03"
+capabilities:
+  - field-setup-prompt
+  - car-registration-flow
+  - run-and-result
+depends-on:
+  - develop-auto-driving-car-simulation
